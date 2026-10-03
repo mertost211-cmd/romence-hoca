@@ -7,7 +7,7 @@ import 'package:speech_to_text/speech_to_text.dart';
 
 const kKey = String.fromEnvironment('GEMINI_KEY');
 const kUrl =
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent';
 
 const kSystem =
     '''Sen Türk bir Romence öğretmenisin. Öğrenci Romanya'ya gitmek için konsolosluk görüşmesine hazırlanıyor.
@@ -140,13 +140,18 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Future<String> _askGemini() async {
-    if (kKey.isEmpty) return 'Anahtar bulunamadı. GEMINI_KEY gizli anahtarını kontrol et.';
+    if (kKey.isEmpty) {
+      return 'Anahtar bulunamadı. GEMINI_KEY gizli anahtarını kontrol et.';
+    }
     final recent = _msgs.length > 12 ? _msgs.sublist(_msgs.length - 12) : _msgs;
     final contents = recent
         .map((m) => {
               'role': m.role,
               'parts': [
-                {'text': m.text.length > 1000 ? m.text.substring(0, 1000) : m.text}
+                {
+                  'text':
+                      m.text.length > 1000 ? m.text.substring(0, 1000) : m.text
+                }
               ],
             })
         .toList();
@@ -169,7 +174,7 @@ class _ChatPageState extends State<ChatPage> {
         .timeout(const Duration(seconds: 40));
     final body = utf8.decode(res.bodyBytes);
     if (res.statusCode != 200) {
-      final short = body.length > 200 ? body.substring(0, 200) : body;
+      final short = body.length > 300 ? body.substring(0, 300) : body;
       return 'Gemini hatası ${res.statusCode}: $short';
     }
     final data = jsonDecode(body);
@@ -320,66 +325,3 @@ class _ChatPageState extends State<ChatPage> {
                           'Mikrofon butonuna bas ve "Merhaba, derse başlayalım" de '
                           'ya da aşağıya yaz.',
                           textAlign: TextAlign.center,
-                          style: TextStyle(fontSize: 18),
-                        ),
-                      ),
-                    )
-                  : ListView.builder(
-                      controller: _scroll,
-                      itemCount: _msgs.length,
-                      itemBuilder: (_, i) => _bubble(_msgs[i]),
-                    ),
-            ),
-            if (_busy)
-              const Padding(
-                padding: EdgeInsets.all(8),
-                child: Text('Öğretmen yazıyor...'),
-              ),
-            if (_listening)
-              Padding(
-                padding: const EdgeInsets.all(8),
-                child: Text(
-                  _partial.isEmpty ? 'Dinliyorum...' : _partial,
-                  style: const TextStyle(fontSize: 16),
-                ),
-              ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _input,
-                      textInputAction: TextInputAction.send,
-                      onSubmitted: _send,
-                      decoration: InputDecoration(
-                        hintText: 'Yaz...',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 10),
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.send),
-                    onPressed: () => _send(_input.text),
-                  ),
-                  FloatingActionButton(
-                    onPressed: _listen,
-                    backgroundColor: _listening
-                        ? Colors.red
-                        : Theme.of(context).colorScheme.primary,
-                    foregroundColor: Colors.white,
-                    child: Icon(_listening ? Icons.stop : Icons.mic),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

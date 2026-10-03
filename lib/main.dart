@@ -1,4 +1,4 @@
-import 'dart:convert';
+import 'dartdart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -7,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 const kDefaults = {
-  'gemini': 'gemini-2.5-flash',
+  'gemini': 'gemini-2.0-flash',
   'groq': 'llama-3.3-70b-versatile',
   'openrouter': 'openrouter/free',
   'openai': 'gpt-4o-mini',
@@ -58,7 +58,6 @@ class App extends StatelessWidget {
       );
 }
 
-// Anahtar var mı diye bakar: yoksa kurulum ekranı, varsa sohbet ekranı.
 class Root extends StatefulWidget {
   const Root({super.key});
 
@@ -222,7 +221,7 @@ class _KeyPageState extends State<KeyPage> {
 }
 
 class Msg {
-  final String role; // 'user' veya 'model'
+  final String role;
   final String text;
   Msg(this.role, this.text);
 }
@@ -398,11 +397,11 @@ class _ChatPageState extends State<ChatPage> {
     final Map<String, dynamic> payload;
 
     if (prov == 'gemini') {
+      final cleanModel = _model.replaceAll('models/', '');
       url = Uri.parse(
-          'https://generativelanguage.googleapis.com/v1beta/models/$_model:generateContent');
+          'https://generativelanguage.googleapis.com/v1beta/models/$cleanModel:generateContent?key=${widget.apiKey}');
       headers = {
         'Content-Type': 'application/json',
-        'x-goog-api-key': widget.apiKey,
       };
       payload = {
         'system_instruction': {

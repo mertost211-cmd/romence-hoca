@@ -42,7 +42,7 @@ jobs:
 
       - run: flutter pub get
 
-      - run: flutter build apk --release
+      - run: flutter build apk --release --dart-define=GEMINI_KEY=${{ secrets.GEMINI_KEY }}
 
       - uses: softprops/action-gh-release@v2
         with:

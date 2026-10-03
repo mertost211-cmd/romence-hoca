@@ -139,7 +139,21 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
+  // Yoğunluk (503) ya da kota (429) hatasında 3 kez tekrar dener.
   Future<String> _askGemini() async {
+    var r = '';
+    for (var i = 0; i < 3; i++) {
+      r = await _askOnce();
+      if (!r.startsWith('Gemini hatası 503') &&
+          !r.startsWith('Gemini hatası 429')) {
+        return r;
+      }
+      await Future.delayed(Duration(seconds: 2 + i * 2));
+    }
+    return 'Gemini şu an yoğun, biraz sonra tekrar dene.';
+  }
+
+  Future<String> _askOnce() async {
     if (kKey.isEmpty) {
       return 'Anahtar bulunamadı. GEMINI_KEY gizli anahtarını kontrol et.';
     }
@@ -324,7 +338,8 @@ class _ChatPageState extends State<ChatPage> {
                           'Merhaba! Ben Romence öğretmenin.\n\n'
                           'Mikrofon butonuna bas ve "Merhaba, derse başlayalım" de '
                           'ya da aşağıya yaz.',
-                          textAlign: TextAlign.center,style: TextStyle(fontSize: 18),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 18),
                         ),
                       ),
                     )

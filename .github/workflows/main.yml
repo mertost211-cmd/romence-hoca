@@ -34,18 +34,11 @@ jobs:
 
       - name: Izinleri ekle
         run: |
-          python3 - <<'EOF'
-          p = 'android/app/src/main/AndroidManifest.xml'
-          s = open(p, encoding='utf-8').read()
-          perms = '<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    '
-          s = s.replace('<application', perms + '<application', 1)
-          intent = '<intent><action android:name="android.speech.RecognitionService"/></intent>'
-          if '<queries>' in s:
-              s = s.replace('<queries>', '<queries>' + intent, 1)
-          else:
-              s = s.replace('<application', '<queries>' + intent + '</queries>\n    <application', 1)
-          open(p, 'w', encoding='utf-8').write(s)
-          EOF
+          f=android/app/src/main/AndroidManifest.xml
+          sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <application|' $f
+          sed -i 's|<queries>|<queries><intent><action android:name="android.speech.RecognitionService"/></intent>|' $f
+          grep -n "uses-permission" $f
+          grep -q "permission.INTERNET" $f
 
       - run: flutter pub get
 

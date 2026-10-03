@@ -155,11 +155,15 @@ class _ChatPageState extends State<ChatPage> {
             }),
           )
           .timeout(const Duration(seconds: 40));
-      final data = jsonDecode(utf8.decode(res.bodyBytes));
-      reply = (data['reply'] ?? '').toString();
-      if (reply.isEmpty) reply = 'Cevap alamadım, tekrar dener misin?';
+      if (res.statusCode != 200) {
+        reply = 'Sunucu hatası: ${res.statusCode}';
+      } else {
+        final data = jsonDecode(utf8.decode(res.bodyBytes));
+        reply = (data['reply'] ?? '').toString();
+        if (reply.isEmpty) reply = 'Cevap alamadım, tekrar dener misin?';
+      }
     } catch (e) {
-      reply = 'Bağlantı hatası. İnternetini kontrol et.';
+      reply = 'Hata: $e';
     }
 
     if (!mounted) return;

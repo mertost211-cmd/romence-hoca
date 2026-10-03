@@ -3,16 +3,45 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
-const kKey = String.fromEnvironment('GEMINI_KEY');
-const kUrl =
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent';
+const kDefaults = {
+  'gemini': 'gemini-3.8-flash',
+  'groq': 'llama-3.3-70b-versatile',
+  'openrouter': 'openrouter/free',
+  'openai': 'gpt-4o-mini',
+  'anthropic': 'claude-haiku-4-5-20251001',
+};
+
+const kNames = {
+  'gemini': 'Gemini',
+  'groq': 'Groq',
+  'openrouter': 'OpenRouter',
+  'openai': 'OpenAI',
+  'anthropic': 'Claude (Anthropic)',
+};
+
+const kOpenAiUrls = {
+  'groq': 'https://api.groq.com/openai/v1/chat/completions',
+  'openrouter': 'https://openrouter.ai/api/v1/chat/completions',
+  'openai': 'https://api.openai.com/v1/chat/completions',
+};
+
+String detectProvider(String k) {
+  if (k.startsWith('sk-ant-')) return 'anthropic';
+  if (k.startsWith('sk-or-')) return 'openrouter';
+  if (k.startsWith('gsk_')) return 'groq';
+  if (k.startsWith('sk-')) return 'openai';
+  return 'gemini';
+}
 
 const kSystem =
     '''Sen Türk bir Romence öğretmenisin. Öğrenci Romanya'ya gitmek için konsolosluk görüşmesine hazırlanıyor.
 Açıklamaları Türkçe yap. Romence cümleleri kısa öğret, Romence cümleleri her zaman „ ” işaretleri içine yaz ve Türkçe okunuşunu parantez içinde yaz.
-Öğrencinin hatalarını nazikçe düzelt. Her cevabın en fazla 5-6 cümle olsun, sonunda öğrenciye tek bir kısa görev ver.
+Öğrencinin mesajları konuşma tanıma ile yazıya çevriliyor, bu yüzden noktalama ve büyük küçük harf farklarını yok say.
+Öğrenci bir Romence cümleyi söylemeye çalıştıysa ve yazı hedef cümleden çok farklıysa, "Şöyle duydum: ..." diye yaz, doğru cümleyi tekrar söylemesini iste. Yazı hedefe yakınsa onu tebrik et.
+Hataları nazikçe düzelt. Her cevabın en fazla 5-6 cümle olsun, sonunda öğrenciye tek bir kısa görev ver.
 Cevapların sesli okunacak, bu yüzden emoji, yıldız ve madde işareti kullanma.''';
 
 void main() => runApp(const App());
@@ -25,8 +54,171 @@ class App extends StatelessWidget {
         title: 'Romence Hoca',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
-        home: const ChatPage(),
+        home: const Root(),
       );
+}
+
+// Anahtar var mı diye bakar: yoksa kurulum ekranı, varsa sohbet ekranı.
+class Root extends StatefulWidget {
+  const Root({super.key});
+
+  @override
+  State<Root> createState() => _RootState();
+}
+
+class _RootState extends State<Root> {
+  String? _key;
+  String _model = '';
+  bool _loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final p = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _key = p.getString('api_key') ?? p.getString('gemini_key');
+      _model = p.getString('model') ?? '';
+      _loaded = true;
+    });
+  }
+
+  Future<void> _saveKey(String k, String m) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString('api_key', k.trim());
+    await p.setString('model', m.trim());
+    if (!mounted) return;
+    setState(() {
+      _key = k.trim();
+      _model = m.trim();
+    });
+  }
+
+  Future<void> _clearKey() async {
+    final p = await SharedPreferences.getInstance();
+    await p.remove('api_key');
+    await p.remove('gemini_key');
+    await p.remove('model');
+    if (!mounted) return;
+    setState(() {
+      _key = null;
+      _model = '';
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_loaded) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (_key == null || _key!.isEmpty) {
+      return KeyPage(onSave: _saveKey);
+    }
+    return ChatPage(apiKey: _key!, model: _model, onChangeKey: _clearKey);
+  }
+}
+
+class KeyPage extends StatefulWidget {
+  final Future<void> Function(String, String) onSave;
+  const KeyPage({super.key, required this.onSave});
+
+  @override
+  State<KeyPage> createState() => _KeyPageState();
+}
+
+class _KeyPageState extends State<KeyPage> {
+  final _c = TextEditingController();
+  final _m = TextEditingController();
+  String _err = '';
+
+  @override
+  void dispose() {
+    _c.dispose();
+    _m.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final k = _c.text.trim();
+    if (k.length < 20 || k.contains(' ')) {
+      setState(
+          () => _err = 'Anahtar eksik ya da hatalı görünüyor. Tekrar kopyala.');
+      return;
+    }
+    widget.onSave(k, _m.text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final k = _c.text.trim();
+    final prov = detectProvider(k);
+    return Scaffold(
+      appBar: AppBar(title: const Text('Romence Hoca')),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            const Text(
+              'Başlamak için anahtarını gir',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Sana verilen anahtarı aşağıdaki kutuya yapıştır. '
+              'Anahtar sadece bu telefonda saklanır.',
+              style: TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _c,
+              minLines: 2,
+              maxLines: 3,
+              onChanged: (_) => setState(() => _err = ''),
+              decoration: InputDecoration(
+                labelText: 'Anahtar',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+            if (k.length >= 8)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text('Algılanan: ${kNames[prov]}'),
+              ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _m,
+              decoration: InputDecoration(
+                labelText: 'Model adı (isteğe bağlı)',
+                hintText: kDefaults[prov],
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+            if (_err.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(_err, style: const TextStyle(color: Colors.red)),
+              ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: _save,
+              child: const Padding(
+                padding: EdgeInsets.all(12),
+                child: Text('Kaydet', style: TextStyle(fontSize: 18)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class Msg {
@@ -36,7 +228,15 @@ class Msg {
 }
 
 class ChatPage extends StatefulWidget {
-  const ChatPage({super.key});
+  final String apiKey;
+  final String model;
+  final Future<void> Function() onChangeKey;
+  const ChatPage({
+    super.key,
+    required this.apiKey,
+    required this.model,
+    required this.onChangeKey,
+  });
 
   @override
   State<ChatPage> createState() => _ChatPageState();
@@ -57,6 +257,10 @@ class _ChatPageState extends State<ChatPage> {
   bool _stopFlag = false;
   String _lang = 'tr_TR';
   String _partial = '';
+
+  String get _prov => detectProvider(widget.apiKey);
+  String get _model =>
+      widget.model.isEmpty ? kDefaults[_prov]! : widget.model;
 
   @override
   void initState() {
@@ -104,6 +308,26 @@ class _ChatPageState extends State<ChatPage> {
     });
   }
 
+  Future<void> _askChangeKey() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Anahtarı değiştir'),
+        content: Text(
+            'Kayıtlı anahtar silinecek ve yenisini gireceksin.\nŞu an: ${kNames[_prov]} / $_model'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('Vazgeç')),
+          TextButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('Değiştir')),
+        ],
+      ),
+    );
+    if (ok == true) await widget.onChangeKey();
+  }
+
   Future<void> _listen() async {
     if (!_sttReady) {
       _snack('Mikrofon izni verilmedi ya da konuşma tanıma yok.');
@@ -139,61 +363,131 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
+  String _cut(String t) => t.length > 1000 ? t.substring(0, 1000) : t;
+
+  // Son 12 mesaj, her zaman kullanıcı mesajıyla başlar.
+  List<Msg> _recent() {
+    var r = _msgs.length > 12
+        ? _msgs.sublist(_msgs.length - 12)
+        : List<Msg>.from(_msgs);
+    while (r.isNotEmpty && r.first.role != 'user') {
+      r = r.sublist(1);
+    }
+    return r;
+  }
+
   // Yoğunluk (503) ya da kota (429) hatasında 3 kez tekrar dener.
   Future<String> _askGemini() async {
     var r = '';
     for (var i = 0; i < 3; i++) {
       r = await _askOnce();
-      if (!r.startsWith('Gemini hatası 503') &&
-          !r.startsWith('Gemini hatası 429')) {
+      if (!r.startsWith('API hatası 503') && !r.startsWith('API hatası 429')) {
         return r;
       }
       await Future.delayed(Duration(seconds: 2 + i * 2));
     }
-    return 'Gemini şu an yoğun, biraz sonra tekrar dene.';
+    if (r.startsWith('API hatası 429')) {
+      return 'Bugünlük kullanım hakkın dolmuş olabilir. Yarın tekrar dene.';
+    }
+    return 'Sunucu şu an yoğun, biraz sonra tekrar dene.';
   }
 
   Future<String> _askOnce() async {
-    if (kKey.isEmpty) {
-      return 'Anahtar bulunamadı. GEMINI_KEY gizli anahtarını kontrol et.';
+    final recent = _recent();
+    final prov = _prov;
+    final Uri url;
+    final Map<String, String> headers;
+    final Map<String, dynamic> payload;
+
+    if (prov == 'gemini') {
+      url = Uri.parse(
+          'https://generativelanguage.googleapis.com/v1beta/models/$_model:generateContent');
+      headers = {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': widget.apiKey,
+      };
+      payload = {
+        'system_instruction': {
+          'parts': [
+            {'text': kSystem}
+          ]
+        },
+        'contents': recent
+            .map((m) => {
+                  'role': m.role,
+                  'parts': [
+                    {'text': _cut(m.text)}
+                  ],
+                })
+            .toList(),
+      };
+    } else if (prov == 'anthropic') {
+      url = Uri.parse('https://api.anthropic.com/v1/messages');
+      headers = {
+        'Content-Type': 'application/json',
+        'x-api-key': widget.apiKey,
+        'anthropic-version': '2023-06-01',
+      };
+      payload = {
+        'model': _model,
+        'max_tokens': 700,
+        'system': kSystem,
+        'messages': recent
+            .map((m) => {
+                  'role': m.role == 'model' ? 'assistant' : 'user',
+                  'content': _cut(m.text),
+                })
+            .toList(),
+      };
+    } else {
+      url = Uri.parse(kOpenAiUrls[prov]!);
+      headers = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ${widget.apiKey}',
+      };
+      payload = {
+        'model': _model,
+        'messages': [
+          {'role': 'system', 'content': kSystem},
+          ...recent.map((m) => {
+                'role': m.role == 'model' ? 'assistant' : 'user',
+                'content': _cut(m.text),
+              }),
+        ],
+      };
     }
-    final recent = _msgs.length > 12 ? _msgs.sublist(_msgs.length - 12) : _msgs;
-    final contents = recent
-        .map((m) => {
-              'role': m.role,
-              'parts': [
-                {
-                  'text':
-                      m.text.length > 1000 ? m.text.substring(0, 1000) : m.text
-                }
-              ],
-            })
-        .toList();
+
     final res = await http
-        .post(
-          Uri.parse(kUrl),
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': kKey,
-          },
-          body: jsonEncode({
-            'system_instruction': {
-              'parts': [
-                {'text': kSystem}
-              ]
-            },
-            'contents': contents,
-          }),
-        )
+        .post(url, headers: headers, body: jsonEncode(payload))
         .timeout(const Duration(seconds: 40));
     final body = utf8.decode(res.bodyBytes);
+
     if (res.statusCode != 200) {
+      final low = body.toLowerCase();
+      if (res.statusCode == 401 ||
+          res.statusCode == 403 ||
+          (res.statusCode == 400 && low.contains('api key'))) {
+        return 'Anahtar geçersiz görünüyor. Sağ üstteki anahtar ikonuna basıp doğru anahtarı gir.';
+      }
       final short = body.length > 300 ? body.substring(0, 300) : body;
-      return 'Gemini hatası ${res.statusCode}: $short';
+      return 'API hatası ${res.statusCode} (${kNames[prov]}): $short';
     }
+
     final data = jsonDecode(body);
-    final parts = data['candidates']?[0]?['content']?['parts'] as List?;
-    final text = parts?.map((p) => p['text'] ?? '').join('') ?? '';
+    String text = '';
+    if (prov == 'gemini') {
+      final parts = data['candidates']?[0]?['content']?['parts'] as List?;
+      text = parts?.map((p) => p['text'] ?? '').join('') ?? '';
+    } else if (prov == 'anthropic') {
+      final list = data['content'] as List?;
+      text = list
+              ?.where((p) => p['type'] == 'text')
+              .map((p) => p['text'] ?? '')
+              .join('') ??
+          '';
+    } else {
+      text = data['choices']?[0]?['message']?['content']?.toString() ?? '';
+    }
     return text.isEmpty ? 'Cevap alamadım, tekrar dener misin?' : text;
   }
 
@@ -288,6 +582,11 @@ class _ChatPageState extends State<ChatPage> {
       appBar: AppBar(
         title: const Text('Romence Hoca'),
         actions: [
+          IconButton(
+            tooltip: 'Anahtarı değiştir',
+            icon: const Icon(Icons.vpn_key),
+            onPressed: _askChangeKey,
+          ),
           IconButton(
             tooltip: 'Sesi aç/kapat',
             icon: Icon(_speakOn ? Icons.volume_up : Icons.volume_off),

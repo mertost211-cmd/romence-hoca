@@ -5,7 +5,15 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
 import 'package:speech_to_text/speech_to_text.dart';
 
-const kServer = 'https://romence-hoca.mertost211.workers.dev';
+const kKey = String.fromEnvironment('GEMINI_KEY');
+const kUrl =
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+
+const kSystem =
+    '''Sen Türk bir Romence öğretmenisin. Öğrenci Romanya'ya gitmek için konsolosluk görüşmesine hazırlanıyor.
+Açıklamaları Türkçe yap. Romence cümleleri kısa öğret, Romence cümleleri her zaman „ ” işaretleri içine yaz ve Türkçe okunuşunu parantez içinde yaz.
+Öğrencinin hatalarını nazikçe düzelt. Her cevabın en fazla 5-6 cümle olsun, sonunda öğrenciye tek bir kısa görev ver.
+Cevapların sesli okunacak, bu yüzden emoji, yıldız ve madde işareti kullanma.''';
 
 void main() => runApp(const App());
 
@@ -131,6 +139,45 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
+  Future<String> _askGemini() async {
+    if (kKey.isEmpty) return 'Anahtar bulunamadı. GEMINI_KEY gizli anahtarını kontrol et.';
+    final recent = _msgs.length > 12 ? _msgs.sublist(_msgs.length - 12) : _msgs;
+    final contents = recent
+        .map((m) => {
+              'role': m.role,
+              'parts': [
+                {'text': m.text.length > 1000 ? m.text.substring(0, 1000) : m.text}
+              ],
+            })
+        .toList();
+    final res = await http
+        .post(
+          Uri.parse(kUrl),
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': kKey,
+          },
+          body: jsonEncode({
+            'system_instruction': {
+              'parts': [
+                {'text': kSystem}
+              ]
+            },
+            'contents': contents,
+          }),
+        )
+        .timeout(const Duration(seconds: 40));
+    final body = utf8.decode(res.bodyBytes);
+    if (res.statusCode != 200) {
+      final short = body.length > 200 ? body.substring(0, 200) : body;
+      return 'Gemini hatası ${res.statusCode}: $short';
+    }
+    final data = jsonDecode(body);
+    final parts = data['candidates']?[0]?['content']?['parts'] as List?;
+    final text = parts?.map((p) => p['text'] ?? '').join('') ?? '';
+    return text.isEmpty ? 'Cevap alamadım, tekrar dener misin?' : text;
+  }
+
   Future<void> _send(String text) async {
     if (_busy || text.trim().isEmpty) return;
     _stopFlag = false;
@@ -144,24 +191,7 @@ class _ChatPageState extends State<ChatPage> {
 
     String reply;
     try {
-      final res = await http
-          .post(
-            Uri.parse(kServer),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({
-              'messages': _msgs
-                  .map((m) => {'role': m.role, 'text': m.text})
-                  .toList(),
-            }),
-          )
-          .timeout(const Duration(seconds: 40));
-      if (res.statusCode != 200) {
-        reply = 'Sunucu hatası: ${res.statusCode}';
-      } else {
-        final data = jsonDecode(utf8.decode(res.bodyBytes));
-        reply = (data['reply'] ?? '').toString();
-        if (reply.isEmpty) reply = 'Cevap alamadım, tekrar dener misin?';
-      }
+      reply = await _askGemini();
     } catch (e) {
       reply = 'Hata: $e';
     }

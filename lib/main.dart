@@ -7,11 +7,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 const kDefaults = {
-  'gemini': 'gemini-3.8-flash',
+  'gemini': 'gemini-2.5-flash',
   'groq': 'llama-3.3-70b-versatile',
   'openrouter': 'openrouter/free',
   'openai': 'gpt-4o-mini',
-  'anthropic': 'claude-haiku-4-5-20251001',
+  'anthropic': 'claude-3-5-haiku-20241022',
 };
 
 const kNames = {
@@ -365,7 +365,6 @@ class _ChatPageState extends State<ChatPage> {
 
   String _cut(String t) => t.length > 1000 ? t.substring(0, 1000) : t;
 
-  // Son 12 mesaj, her zaman kullanıcı mesajıyla başlar.
   List<Msg> _recent() {
     var r = _msgs.length > 12
         ? _msgs.sublist(_msgs.length - 12)
@@ -376,7 +375,6 @@ class _ChatPageState extends State<ChatPage> {
     return r;
   }
 
-  // Yoğunluk (503) ya da kota (429) hatasında 3 kez tekrar dener.
   Future<String> _askGemini() async {
     var r = '';
     for (var i = 0; i < 3; i++) {
@@ -520,7 +518,6 @@ class _ChatPageState extends State<ChatPage> {
     if (_auto && _speakOn && mounted && !_stopFlag) _listen();
   }
 
-  // Romence kısımlar („ ” içindekiler) Romence sesle, gerisi Türkçe sesle okunur.
   Future<void> _speak(String reply) async {
     final clean = reply
         .replaceAll(RegExp(r'\([^)]*\)'), ' ')
